@@ -1,0 +1,17 @@
+﻿{
+  "version": "1.0.0-*",
+  "description": "A Set of commonly used Time constants",
+  "authors": [ "Mindbus" ],
+  "tags": [ "Time Constants" ],
+  "projectUrl": "https://github.com/Mindbus/Mindbus.Constants.Time",
+  "licenseUrl": "https://github.com/Mindbus/Mindbus.Constants.Time/blob/master/LICENSE",
+
+  "frameworks": {
+    "dnx451": { },
+    "dnxcore50": {
+      "dependencies": {
+        "Microsoft.CSharp": "4.0.1-beta-23516"
+      }
+    }
+  }
+}
