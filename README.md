@@ -1,6 +1,11 @@
 # Mindbus.Constants.Time
 A Set of commonly used Time constants
 
+## Install
+
+Use Nuget to install
+
+    Install-Package Mindbus.Constants.Time
 
 ## Constants
 
