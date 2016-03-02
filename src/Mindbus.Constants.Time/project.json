@@ -1,5 +1,5 @@
 ﻿{
-  "version": "1.0.0-*",
+  "version": "1.0.0-beta*",
   "description": "A Set of commonly used Time constants",
   "authors": [ "Mindbus" ],
   "tags": [ "Time Constants" ],
