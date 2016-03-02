@@ -88,5 +88,12 @@ namespace Mindbus.Constants.Time.Tests
             var approximateByTopInverse = (oneHourInMinutes + 10).Minutes().InHours(ApproximationType.Top);
             Assert.Equal(expectedPlusOne, approximateByTopInverse);
         }
+
+        [Fact]
+        public void ExampleTests()
+        {
+            Assert.Equal(2, (int)120.Minutes().InHours());
+            Assert.Equal(2, (int)125.Minutes().InHours(ApproximationType.Floor));
+        }
     }
 }
