@@ -1,103 +1,65 @@
-function Install-Dnvm
-{
-    & where.exe dnvm 2>&1 | Out-Null
-    if(($LASTEXITCODE -ne 0) -Or ((Test-Path Env:\APPVEYOR) -eq $true))
-    {
-        Write-Host "DNVM not found"
-        &{$Branch='dev';iex ((New-Object net.webclient).DownloadString('https://raw.githubusercontent.com/aspnet/Home/dev/dnvminstall.ps1'))}
+<#
+.SYNOPSIS
+    You can add this to you build script to ensure that psbuild is available before calling
+    Invoke-MSBuild. If psbuild is not available locally it will be downloaded automatically.
+#>
+function EnsurePsbuildInstalled{
+    [cmdletbinding()]
+    param(
+        [string]$psbuildInstallUri = 'https://raw.githubusercontent.com/ligershark/psbuild/master/src/GetPSBuild.ps1'
+    )
+    process{
+        if(-not (Get-Command "Invoke-MsBuild" -errorAction SilentlyContinue)){
+            'Installing psbuild from [{0}]' -f $psbuildInstallUri | Write-Verbose
+            (new-object Net.WebClient).DownloadString($psbuildInstallUri) | iex
+        }
+        else{
+            'psbuild already loaded, skipping download' | Write-Verbose
+        }
 
-        # Normally this happens automatically during install but AppVeyor has
-        # an issue where you may need to manually re-run setup from within this process.
-        if($env:DNX_HOME -eq $NULL)
-        {
-            Write-Host "Initial DNVM environment setup failed; running manual setup"
-            $tempDnvmPath = Join-Path $env:TEMP "dnvminstall"
-            $dnvmSetupCmdPath = Join-Path $tempDnvmPath "dnvm.ps1"
-            & $dnvmSetupCmdPath setup
+        # make sure it's loaded and throw if not
+        if(-not (Get-Command "Invoke-MsBuild" -errorAction SilentlyContinue)){
+            throw ('Unable to install/load psbuild from [{0}]' -f $psbuildInstallUri)
         }
     }
 }
 
-function Get-DnxVersion
+# Taken from psake https://github.com/psake/psake
+
+<#
+.SYNOPSIS
+  This is a helper function that runs a scriptblock and checks the PS variable $lastexitcode
+  to see if an error occcured. If an error is detected then an exception is thrown.
+  This function allows you to run command-line programs without having to
+  explicitly check the $lastexitcode variable.
+.EXAMPLE
+  exec { svn info $repository_trunk } "Error executing SVN. Please verify SVN command-line client is installed"
+#>
+function Exec
 {
-    $globalJson = Join-Path $PSScriptRoot "global.json"
-    $jsonData = Get-Content -Path $globalJson -Raw | ConvertFrom-JSON
-    return $jsonData.sdk.version
+    [CmdletBinding()]
+    param(
+        [Parameter(Position=0,Mandatory=1)][scriptblock]$cmd,
+        [Parameter(Position=1,Mandatory=0)][string]$errorMessage = ($msgs.error_bad_command -f $cmd)
+    )
+    & $cmd
+    if ($lastexitcode -ne 0) {
+        throw ("Exec: " + $errorMessage)
+    }
 }
 
-function Restore-Packages
-{
-    param([string] $DirectoryName)
-    & dnu restore ("""" + $DirectoryName + """")
-}
-
-function Build-Projects
-{
-    param([string] $DirectoryName)
-    & dnu build ("""" + $DirectoryName + """") --configuration Release --out .\artifacts\testbin; if($LASTEXITCODE -ne 0) { exit 1 }
-    & dnu pack ("""" + $DirectoryName + """") --configuration Release --out .\artifacts\packages; if($LASTEXITCODE -ne 0) { exit 1 }
-}
-
-function Build-TestProjects
-{
-    param([string] $DirectoryName)
-    & dnu build ("""" + $DirectoryName + """") --configuration Release --out .\artifacts\testbin; if($LASTEXITCODE -ne 0) { exit 1 }
-}
-
-function Test-Projects
-{
-    param([string] $DirectoryName)
-    & dnx -p ("""" + $DirectoryName + """") test; if($LASTEXITCODE -ne 0) { exit 2 }
-}
-
-function Remove-PathVariable
-{
-    param([string] $VariableToRemove)
-    $path = [Environment]::GetEnvironmentVariable("PATH", "User")
-    $newItems = $path.Split(';') | Where-Object { $_.ToString() -inotlike $VariableToRemove }
-    [Environment]::SetEnvironmentVariable("PATH", [System.String]::Join(';', $newItems), "User")
-    $path = [Environment]::GetEnvironmentVariable("PATH", "Process")
-    $newItems = $path.Split(';') | Where-Object { $_.ToString() -inotlike $VariableToRemove }
-    [Environment]::SetEnvironmentVariable("PATH", [System.String]::Join(';', $newItems), "Process")
-}
-
-Push-Location $PSScriptRoot
-
-$dnxVersion = Get-DnxVersion
-
-# Clean
 if(Test-Path .\artifacts) { Remove-Item .\artifacts -Force -Recurse }
 
-# Remove the installed DNVM from the path and force use of
-# per-user DNVM (which we can upgrade as needed without admin permissions)
-Remove-PathVariable "*Program Files\Microsoft DNX\DNVM*"
+EnsurePsbuildInstalled
 
-# Make sure per-user DNVM is installed
-Install-Dnvm
+exec { & dotnet restore }
 
-# Install DNX
-dnvm install $dnxVersion -r CoreCLR -NoNative
-dnvm install $dnxVersion -r CLR -NoNative
-dnvm use $dnxVersion -r CLR
+Invoke-MSBuild
 
-# Package restore
-Get-ChildItem -Path . -Filter *.xproj -Recurse | ForEach-Object { Restore-Packages $_.DirectoryName }
+$revision = @{ $true = $env:APPVEYOR_BUILD_NUMBER; $false = 1 }[$env:APPVEYOR_BUILD_NUMBER -ne $NULL];
+$revision = "{0:D4}" -f [convert]::ToInt32($revision, 10)
 
-# Set build number
-$env:DNX_BUILD_VERSION = @{ $true = $env:APPVEYOR_BUILD_NUMBER; $false = 1 }[$env:APPVEYOR_BUILD_NUMBER -ne $NULL];
-Write-Host "Build number: " $env:DNX_BUILD_VERSION
+exec { & dotnet test .\tests\FlatMapper.Tests -c Release }
 
-# Build/package
-Get-ChildItem -Path .\src -Filter *.xproj -Recurse | ForEach-Object { Build-Projects $_.DirectoryName }
-Get-ChildItem -Path .\test -Filter *.xproj -Recurse | ForEach-Object { Build-TestProjects $_.DirectoryName }
+exec { & dotnet pack .\src\FlatMapper -c Release -o .\artifacts --version-suffix=$revision }
 
-# Test
-Get-ChildItem -Path .\test -Filter *.xproj -Recurse | ForEach-Object { Test-Projects $_.DirectoryName }
-
-# Switch to Core CLR
-dnvm use $dnxVersion -r CoreCLR
-
-# Test again
-Get-ChildItem -Path .\test -Filter *.xproj -Recurse | ForEach-Object { Test-Projects $_.DirectoryName }
-
-Pop-Location
